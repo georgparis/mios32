@@ -6,6 +6,8 @@
 //
 
 #import "FreeRTOS_Wrapper.h"
+#include <mios32.h>
+#include "app.h" // EMU: APP_Background()
 
 
 @implementation FreeRTOS_Wrapper

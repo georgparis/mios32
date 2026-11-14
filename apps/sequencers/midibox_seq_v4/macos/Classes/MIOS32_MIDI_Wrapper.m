@@ -273,15 +273,24 @@ s32 MIOS32_UART_TxBufferPutMore_NonBlocking(u8 uart, u8 *buffer, u16 len)
 	}
 	  
     if( send_sysex ) {
-		MIDIPacketList packetList;
-		MIDIPacket *packet = MIDIPacketListInit(&packetList);
+		// EMU: a MIDIPacketList on the stack only holds 256 bytes -> use a buffer
+		// which is large enough for the complete SysEx stream
+		Byte packetListBuffer[MIOS32_UART_TX_BUFFER_SIZE + 64];
+		MIDIPacketList *packetList = (MIDIPacketList *)packetListBuffer;
+		MIDIPacket *packet = MIDIPacketListInit(packetList);
 		
-		packet = MIDIPacketListAdd(&packetList, sizeof(packetList), packet,
+		packet = MIDIPacketListAdd(packetList, sizeof(packetListBuffer), packet,
 								   0, // timestamp
 								   tx_sysex_buffer_ptr[uart], (u8 *)&tx_sysex_buffer[uart]);
-		[virtualMIDI_OUT[uart] addSender:_self];
-		[virtualMIDI_OUT[uart] processMIDIPacketList:&packetList sender:_self];
-		[virtualMIDI_OUT[uart] removeSender:_self];		
+		if( packet ) {
+			[virtualMIDI_OUT[uart] addSender:_self];
+			[virtualMIDI_OUT[uart] processMIDIPacketList:packetList sender:_self];
+			[virtualMIDI_OUT[uart] removeSender:_self];
+		}
+
+		// EMU: SysEx has been sent - clear buffer, otherwise it would be sent
+		// again together with the next MIDI events
+		tx_sysex_buffer_ptr[uart] = 0;
 	}
   }
 

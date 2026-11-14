@@ -11,6 +11,7 @@
 
 #include <mios32.h>
 #include <netdb.h>
+#include "app.h" // EMU: APP_MIDI_NotifyPackage()
 
 // 1: errors and important messages
 // 2: more debug messages

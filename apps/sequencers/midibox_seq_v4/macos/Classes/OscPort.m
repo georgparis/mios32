@@ -10,6 +10,8 @@
 #import "OscPort.h"
 
 #include <netdb.h>
+#include <mios32.h>
+extern s32 OSC_SERVER_ReceivePacket(u8 *packet, u32 len); // EMU: located in OscServer_Wrapper.m
 
 
 // 1: errors and important messages

@@ -8,6 +8,8 @@
 //
 
 #import "SEQEncoder.h"
+#include <mios32.h>
+#include "app.h" // EMU: APP_ENC_NotifyChange()
 
 @implementation SEQEncoder
 

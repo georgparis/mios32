@@ -8,6 +8,8 @@
 //
 
 #import "SEQButton.h"
+#include <mios32.h>
+extern s32 EMU_DIN_NotifyToggle(u32 pin, u32 value); // EMU: located in UI.mm
 
 @implementation SEQButton
 

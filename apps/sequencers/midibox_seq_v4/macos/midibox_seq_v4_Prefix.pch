@@ -5,3 +5,19 @@
 #ifdef __OBJC__
     #import <Cocoa/Cocoa.h>
 #endif
+
+// EMU: FreeRTOS functions provided by Classes/FreeRTOS_Wrapper.m
+// They have to be declared everywhere: on a 64bit host an implicitly declared
+// function returns a truncated 32bit int (e.g. pointers from pvPortMalloc!)
+#include <stddef.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern void portENTER_CRITICAL(void);
+extern void portEXIT_CRITICAL(void);
+extern void *pvPortMalloc(size_t xWantedSize);
+extern void vPortFree(void *pv);
+extern void taskYIELD(void);
+#ifdef __cplusplus
+}
+#endif

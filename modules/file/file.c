@@ -910,13 +910,10 @@ s32 FILE_Remove(char *path)
     return FILE_ERR_NO_VOLUME;
   }
 
-#ifdef MIOS32_FAMILY_EMULATION
-  if( (file_dfs_errno=unlink(path)) != FR_OK )
-    return FILE_ERR_REMOVE;
-#else
+  // EMU: the emulation provides f_unlink as well (removes the file inside the
+  // emulated SD Card directory) - unlink(path) would access the host root directory!
   if( (file_dfs_errno=f_unlink(path)) != FR_OK )
     return FILE_ERR_REMOVE;
-#endif
 
   return 0; // directory created
 }

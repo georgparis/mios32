@@ -14,6 +14,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/stat.h> // EMU: mkdir()
 
 // avoid that definitions in fatfs/src/integer.h will be included - BOOL clashes with ObjC definitions
 #define _INTEGER
@@ -284,6 +285,28 @@ FRESULT f_mkdir (
 
     if( mkdir(fullPathC, 0755) < 0 )
         return FR_EXIST; // or no permission - not checked in this simplified version
+
+    return FR_OK;
+}
+
+
+/*-----------------------------------------------------------------------*/
+/* EMU: Delete a File or (empty) Directory inside the SD Card directory  */
+/*-----------------------------------------------------------------------*/
+FRESULT f_unlink (
+	const XCHAR *path		/* Pointer to the file or directory path */
+)
+{
+    if( SDCARD_Wrapper_getDir() == nil )
+        return FR_NOT_ENABLED; // SD Card directory not specified -> "emulated" SD Card not available
+
+    NSString *fullPath = [[NSString alloc] initWithFormat:@"%@/%s", SDCARD_Wrapper_getDir(), path];
+    char fullPathC[1024];
+    [fullPath getCString:fullPathC maxLength:sizeof(fullPathC) encoding:NSUTF8StringEncoding];
+	[fullPath release];
+
+    if( remove(fullPathC) < 0 )
+        return FR_NO_FILE;
 
     return FR_OK;
 }

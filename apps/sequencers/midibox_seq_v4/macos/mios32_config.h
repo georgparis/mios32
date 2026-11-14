@@ -105,4 +105,38 @@ extern s32 UI_printf(char *format, ...);
 #define BLM_X_DEBOUNCE_MODE       0
 
 
+
+/////////////////////////////////////////////////////////////////////////////
+// EMU: settings taken over from ../mios32/mios32_config.h (current firmware)
+/////////////////////////////////////////////////////////////////////////////
+
+// emulate MIDIbox SEQ V4+ firmware (STM32F4 core) by default
+// The frontpanel (e.g. Wilba) is independent from the firmware variant:
+// build with "V4=1 ./build_emulator.sh" to emulate the classic V4 firmware (STM32F1/LPC17 core)
+#ifndef EMU_CLASSIC_V4
+#define MBSEQV4P
+#endif
+
+#define AHB_SECTION
+#define MIOS32_LCD_BOOT_MSG_DELAY 0
+
+#define MIOS32_SRIO_NUM_SR 23
+#define MIOS32_ENC_NUM_MAX 32
+
+#define SEQ_MIDI_OUT_SUPPORT_DELAY 1
+
+#define BLM_X_COL_INV_MASK        0   // dummy, will be changed in seq_file_hw.c
+
+// AOUT interface: enable calibration for up to 12 octaves, up to 32 channels
+#define AOUT_NUM_CALI_POINTS_X 12
+#define AOUT_NUM_CALI_POINTS_Y_INTERVAL (12*0x200)
+#define AOUT_NUM_CHANNELS 32
+
+// BLM_SCALAR master driver
+#define BLM_SCALAR_MASTER_OSC_SUPPORT 1
+extern void TASKS_MUTEX_MIDIOUT_Take(void);
+extern void TASKS_MUTEX_MIDIOUT_Give(void);
+#define BLM_SCALAR_MASTER_MUTEX_MIDIOUT_TAKE { TASKS_MUTEX_MIDIOUT_Take(); }
+#define BLM_SCALAR_MASTER_MUTEX_MIDIOUT_GIVE { TASKS_MUTEX_MIDIOUT_Give(); }
+
 #endif /* _MIOS32_CONFIG_H */

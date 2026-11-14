@@ -10,6 +10,7 @@
 
 #import "UI.h"
 #import "MIOS32_SDCARD_Wrapper.h"
+#import "WilbaPanel.h" // EMU: skeuomorphic Wilba frontpanel
 
 #include <mios32.h>
 #include <app.h>
@@ -99,6 +100,7 @@ static NSButton *_buttonUp;
 static NSButton *_buttonDown;
 
 static u32 mios32_timestamp;
+static NSWindow *oldNibWindow = nil; // EMU: window of MainMenu.nib (replaced by WilbaPanel)
 
 //////////////////////////////////////////////////////////////////////////////
 // Emulation specific LED access functions
@@ -328,6 +330,20 @@ extern "C" void SRIO_ServiceFinish(void)
 #endif
 }
 
+- (void)periodicSRIOThread:(id)anObject
+{
+	NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+	[NSThread setThreadPriority:1.0];
+
+	while (YES) {
+		[self periodicSRIOTask:nil];
+		[NSThread sleepUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.001]];
+	}
+
+	[pool release];
+	[NSThread exit];
+}
+
 - (void)periodicSRIOTask:(NSTimer *)aTimer
 {
     // increment mios timestamp
@@ -338,12 +354,33 @@ extern "C" void SRIO_ServiceFinish(void)
 
 	// start next SRIO scan - IRQ notification to SRIO_ServiceFinish()
 	MIOS32_IRQ_Disable(); // since no IRQs with higher priority are emulated, we have to use a lock in the MIOS32 IRQ Wrapper
+	// EMU: Wilba's 8x8 button matrix (hwcfg/wilba/MBSEQ_HW.V4):
+	// BLM8X8_DOUT_CATHODES_SR 1 selects the row (active low), the buttons of the row
+	// are read from BLM8X8_DIN_SR 2. SEQ_BLM8X8_GetRow() assigns the DIN value to
+	// the row which was selected in the previous scan.
+	// The DOUT buffer stores the value bit-reversed (pin 0 = bit 7), and at this
+	// point it still contains the select value of the previous scan, therefore:
+	//   cleared bit b -> selected row x = 7-b -> evaluated row = x-1 = 6-b
+	// (verified with test scripts + DIN testmode: TRACK2 M7:7, GROUP2 M8:7, EXIT M8:5)
+	{
+		const int rowsel_sr = 1 - 1;
+		const int din_sr = 2 - 1;
+		u8 num_sr = MIOS32_SRIO_ScanNumGet();
+		if( num_sr > rowsel_sr && num_sr > din_sr ) {
+			u8 rowsel = mios32_srio_dout[0][num_sr - rowsel_sr - 1];
+			int b;
+			for(b=0; b<8; ++b)
+				if( !(rowsel & (1 << b)) )
+					break;
+			if( b < 8 )
+				mios32_srio_din_buffer[din_sr] = emu_blm8x8_buttons[(6 - b + 8) % 8];
+		}
+	}
+
 	MIOS32_SRIO_ScanStart((void *)&SRIO_ServiceFinish);
 
-	// emulation: transfer new DOUT SR values to GUI LED elements
-	int sr;
-	for(sr=0; sr<MIOS32_SRIO_NUM_SR; ++sr)
-		EMU_DOUT_SRSet(sr, mios32_srio_dout[0][MIOS32_SRIO_NUM_SR-sr-1]);
+	// EMU: LEDs of the old Interface Builder window are not updated anymore;
+	// the WilbaPanel reads the LED states from the emulated 8x8 matrix
 
 	MIOS32_IRQ_Enable();
 
@@ -392,8 +429,8 @@ extern "C" void SRIO_ServiceFinish(void)
 	while (YES) {		
 		SEQ_TASK_Period1mS_LowPrio();
 
-        [cLcdLeft periodicUpdate];
-        [cLcdRight periodicUpdate];
+        // EMU: LCD update is requested from the main thread (lcdUpdate timer),
+        // AppKit views must not be invalidated from a background thread
 
         [NSThread sleepUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.001]];
     }
@@ -415,6 +452,9 @@ extern "C" void SRIO_ServiceFinish(void)
 	[NSThread exit];
 }
 
+// EMU: the pattern task has been removed from the firmware (patterns are
+// changed in SEQ_TASK_Period1mS_LowPrio now), therefore no stub is required anymore
+#if 0
 /////////////////////////////////////////////////////////////////////////////
 // This task is triggered from SEQ_PATTERN_Change to transport the new patch
 // into RAM
@@ -440,6 +480,7 @@ extern "C" void SEQ_TASK_PatternResume(void)
 
     SEQ_TASK_Pattern();
 }
+#endif
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -475,8 +516,10 @@ extern "C" s32 TASK_MSD_FlagStrGet(char str[5])
 extern "C" s32 TASKS_Init(u32 mode)
 {
 	// install SRIO task
-	NSTimer *timer1 = [NSTimer timerWithTimeInterval:0.001 target:_self selector:@selector(periodicSRIOTask:) userInfo:nil repeats:YES];
-	[[NSRunLoop currentRunLoop] addTimer: timer1 forMode: NSDefaultRunLoopMode];
+	// EMU: the SRIO scan runs in its own thread with a fixed 1 mS period (like the
+	// SRIO interrupt of the real hardware). As NSTimer in the main thread, it was
+	// slowed down by LCD redraws -> short button presses got lost in the matrix scan
+	[NSThread detachNewThreadSelector:@selector(periodicSRIOThread:) toTarget:_self withObject:nil];
 
 	// Detach the new threads
 	[NSThread detachNewThreadSelector:@selector(periodicMIDITask:) toTarget:_self withObject:nil];
@@ -518,11 +561,15 @@ extern "C" s32 TASKS_Init(u32 mode)
     CLcd* cLcd0 = APP_LCD_GetComponentPtr(0);
     cLcd0->setLcdColumns(40);
     cLcd0->setLcdLines(2);
+    cLcd0->setLcdBColor(24, 28, 22);   // EMU: dark LCD glass
+    cLcd0->setLcdFColor(176, 232, 86); // EMU: yellow-green characters
     [cLcdLeft setCLcd:cLcd0];
 
     CLcd* cLcd1 = APP_LCD_GetComponentPtr(1);
     cLcd1->setLcdColumns(40);
     cLcd1->setLcdLines(2);
+    cLcd1->setLcdBColor(24, 28, 22);
+    cLcd1->setLcdFColor(176, 232, 86);
     [cLcdRight setCLcd:cLcd1];
 	MIOS32_LCD_Init(0);
 #endif
@@ -540,6 +587,22 @@ extern "C" s32 TASKS_Init(u32 mode)
 	for(delay=0; delay<2000; ++delay)
 		MIOS32_DELAY_Wait_uS(1000);
 #endif
+
+	// EMU: SD Card path can be preselected with the MBSEQ_SDCARD environment variable
+	// (no dialog, e.g. for automated tests: MBSEQ_SDCARD=~/mbseq_sd ./MBSEQ_V4_Emulator)
+	const char *sdcard_env = getenv("MBSEQ_SDCARD");
+	if( sdcard_env && sdcard_env[0] ) {
+		NSString *sdDir = [[NSString stringWithUTF8String:sdcard_env] stringByExpandingTildeInPath];
+		[[NSFileManager defaultManager] createDirectoryAtPath:sdDir withIntermediateDirectories:YES attributes:nil error:nil];
+		fprintf(stderr, "[EMU] SD Card directory: %s\n", [sdDir UTF8String]);
+		SDCARD_Wrapper_setDir(sdDir);
+
+		// EMU: optional test script (see WilbaPanel.mm)
+		const char *script_env = getenv("MBSEQ_EMU_SCRIPT");
+		if( script_env && script_env[0] )
+			[WilbaPanel runScript:[[NSString stringWithUTF8String:script_env] stringByExpandingTildeInPath]];
+		return;
+	}
 
 	// SD Card path selection
 	int result;
@@ -569,6 +632,7 @@ extern "C" s32 TASKS_Init(u32 mode)
 {
     [cLcdLeft periodicUpdate];
     [cLcdRight periodicUpdate];
+    [WilbaPanel periodicUpdate]; // EMU: frontpanel LEDs
 }
 
 
@@ -682,6 +746,21 @@ extern "C" s32 TASKS_Init(u32 mode)
 	// periodic LCD update
 	NSTimer *lcdTimer = [NSTimer timerWithTimeInterval:0.010 target:self selector:@selector(lcdUpdate:) userInfo:nil repeats:YES];
 	[[NSRunLoop currentRunLoop] addTimer: lcdTimer forMode: NSDefaultRunLoopMode];
+
+	// EMU: replace the old Interface Builder window by the skeuomorphic Wilba frontpanel
+	// (the old window is shown by AppKit after awakeFromNib, therefore hide it delayed)
+	oldNibWindow = [cLcdLeft window];
+	NSTimer *hideTimer = [NSTimer timerWithTimeInterval:0.05 target:self selector:@selector(hideOldWindow:) userInfo:nil repeats:NO];
+	[[NSRunLoop currentRunLoop] addTimer: hideTimer forMode: NSDefaultRunLoopMode];
+	CLcdView *lcdLeft = nil, *lcdRight = nil;
+	[WilbaPanel createWindowWithLcdLeft:&lcdLeft lcdRight:&lcdRight];
+	cLcdLeft = lcdLeft;
+	cLcdRight = lcdRight;
+}
+
+- (void)hideOldWindow:(NSTimer *)aTimer
+{
+	[oldNibWindow orderOut:nil];
 }
 
 @end

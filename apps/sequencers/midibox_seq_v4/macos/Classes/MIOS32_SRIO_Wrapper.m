@@ -118,19 +118,32 @@ s32 MIOS32_SRIO_DebounceStart(void)
 /////////////////////////////////////////////////////////////////////////////
 // dummy stubs
 /////////////////////////////////////////////////////////////////////////////
-s32 MIOS32_SRIO_DebounceSet(u8 _debounce_time)
+s32 MIOS32_SRIO_DebounceSet(u16 _debounce_time) // EMU: signature aligned with mios32_srio.h
 {
 	return 0; // no error
 }
 
+u32 MIOS32_SRIO_DebounceGet(void)
+{
+	return 0;
+}
+
+// EMU: number of scanned shift registers
+// The DIN/DOUT drivers ignore all pins >= ScanNumGet()*8, therefore the
+// previous dummy implementation (always 0) disabled all buttons and LEDs!
+static u8 srio_scan_num_sr = MIOS32_SRIO_NUM_SR;
+
 s32 MIOS32_SRIO_ScanNumSet(u8 num)
 {
+	if( num > MIOS32_SRIO_NUM_SR )
+		num = MIOS32_SRIO_NUM_SR;
+	srio_scan_num_sr = num;
 	return 0; // no error
 }
 
 u8 MIOS32_SRIO_ScanNumGet(void)
 {
-	return 0; // no error
+	return srio_scan_num_sr;
 }
 
 @end
