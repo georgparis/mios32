@@ -138,12 +138,14 @@ static s32 Encoder_Handler(seq_ui_encoder_t encoder, s32 incrementer)
   }
 
   // for GP encoders and Datawheel
-  u8 grooves_total = SEQ_GROOVE_NUM_PRESETS+SEQ_GROOVE_NUM_TEMPLATES;
+  u8 grooves_total = SEQ_GROOVE_NUM_TOTAL; // MOD: includes MPC3000 swing
   u8 selected_groove_org = SEQ_CC_Get(visible_track, SEQ_CC_GROOVE_STYLE);
   u8 selected_groove = SEQ_CC_Get(visible_track, SEQ_CC_GROOVE_STYLE) & 0x3f;
   s32 groove_template = selected_groove - SEQ_GROOVE_NUM_PRESETS; // negative if not a custom template
   seq_groove_entry_t *g;
-  if( selected_groove >= SEQ_GROOVE_NUM_PRESETS )
+  if( selected_groove >= SEQ_GROOVE_MPC_SWING )
+    g = (seq_groove_entry_t *)&seq_groove_presets[0]; // MOD: MPC swing has no step table
+  else if( selected_groove >= SEQ_GROOVE_NUM_PRESETS )
     g = (seq_groove_entry_t *)&seq_groove_templates[selected_groove-SEQ_GROOVE_NUM_PRESETS];
   else
     g = (seq_groove_entry_t *)&seq_groove_presets[selected_groove];
@@ -175,7 +177,9 @@ static s32 Encoder_Handler(seq_ui_encoder_t encoder, s32 incrementer)
     if( !local_change ) {
       ui_selected_tracks = ~seq_groove_ui_local_selection;
     }
-    s32 status = SEQ_UI_CC_Inc(SEQ_CC_GROOVE_VALUE, 0, 127, incrementer);
+    // MOD: MPC3000 swing uses 0..25 (= MPC 50%..75%)
+    u8 max_value = (selected_groove == SEQ_GROOVE_MPC_SWING) ? SEQ_GROOVE_MPC_SWING_MAX : 127;
+    s32 status = SEQ_UI_CC_Inc(SEQ_CC_GROOVE_VALUE, 0, max_value, incrementer);
     if( !local_change ) {
       ui_selected_tracks = tmp;
     }
@@ -352,7 +356,10 @@ static s32 LCD_Handler(u8 high_prio)
   u8 selected_groove = selected_groove_org & 0x3f;
   u8 sync_to_track = (selected_groove_org & 0x40) ? 1 : 0;
   seq_groove_entry_t *g;
-  if( selected_groove >= SEQ_GROOVE_NUM_PRESETS )
+  u8 is_mpc_swing = selected_groove == SEQ_GROOVE_MPC_SWING;
+  if( selected_groove >= SEQ_GROOVE_MPC_SWING )
+    g = (seq_groove_entry_t *)&seq_groove_presets[0]; // MOD: MPC swing has no step table
+  else if( selected_groove >= SEQ_GROOVE_NUM_PRESETS )
     g = (seq_groove_entry_t *)&seq_groove_templates[selected_groove-SEQ_GROOVE_NUM_PRESETS];
   else
     g = (seq_groove_entry_t *)&seq_groove_presets[selected_groove];
@@ -383,11 +390,16 @@ static s32 LCD_Handler(u8 high_prio)
 
   ///////////////////////////////////////////////////////////////////////////
   if( ui_selected_item == ITEM_GROOVE_VALUE && ui_cursor_flash ) {
-    SEQ_LCD_PrintSpaces(3);
+    SEQ_LCD_PrintSpaces(7);
+  } else if( is_mpc_swing ) {
+    // MOD: show intensity and MPC swing percentage, e.g. "16 66% "
+    u8 k = SEQ_CC_Get(visible_track, SEQ_CC_GROOVE_VALUE);
+    if( k > SEQ_GROOVE_MPC_SWING_MAX )
+      k = SEQ_GROOVE_MPC_SWING_MAX;
+    SEQ_LCD_PrintFormattedString("%2d %2d%% ", k, 50+k);
   } else {
-    SEQ_LCD_PrintFormattedString("%3d", SEQ_CC_Get(visible_track, SEQ_CC_GROOVE_VALUE));
+    SEQ_LCD_PrintFormattedString("%3d    ", SEQ_CC_Get(visible_track, SEQ_CC_GROOVE_VALUE));
   }
-  SEQ_LCD_PrintSpaces(4);
 
 
   ///////////////////////////////////////////////////////////////////////////
@@ -452,7 +464,7 @@ static s32 LCD_Handler(u8 high_prio)
   }
 
   ///////////////////////////////////////////////////////////////////////////
-  if( selected_groove >= SEQ_GROOVE_NUM_PRESETS ) {
+  if( selected_groove >= SEQ_GROOVE_NUM_PRESETS && !is_mpc_swing ) {
     if( ui_selected_item == ITEM_GROOVE_NUM_STEPS && ui_cursor_flash ) {
       SEQ_LCD_PrintSpaces(6);
     } else {

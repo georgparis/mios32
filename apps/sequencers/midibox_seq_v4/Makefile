@@ -106,6 +106,7 @@ THUMB_SOURCE    = core/app.c \
 		core/seq_random.c \
 		core/seq_trg.c \
 		core/seq_par.c \
+		core/seq_nrpn.c \
 		core/seq_mixer.c \
 		core/seq_song.c \
 		core/seq_label.c \

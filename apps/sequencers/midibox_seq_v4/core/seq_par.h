@@ -54,6 +54,7 @@ typedef enum {
   SEQ_PAR_Type_Scale=17,
   SEQ_PAR_Type_Chord3=18,
   SEQ_PAR_Type_Ctrl=19,
+  SEQ_PAR_Type_NRPN=20, // MOD: NRPN (CC99 MSB, CC98 LSB, CC6 Data Entry)
   SEQ_PAR_NUM_TYPES
 } seq_par_layer_type_t;
 

@@ -24,6 +24,7 @@
 #include "seq_ui.h"
 #include "seq_cc.h"
 #include "seq_par.h"
+#include "seq_nrpn.h" // MOD
 #include "seq_trg.h"
 #include "seq_layer.h"
 #include "seq_midi_port.h"
@@ -122,6 +123,8 @@ static u8 selected_layer_config_track;
 static u8 selected_drum_par_layer = 0;
 
 static u8 edit_cc_number;
+static u8 edit_nrpn_lsb;   // MOD: NRPN LSB (CC#98), MSB is stored in edit_cc_number
+static u8 edit_nrpn_field; // MOD: 0: MSB selected, 1: LSB selected
 static u8 edit_layer_type;
 
 static const layer_config_t layer_config[] = {
@@ -571,6 +574,32 @@ static s32 Encoder_Handler(seq_ui_encoder_t encoder, s32 incrementer)
 		    }
 		  }
 		}
+	      } else if( assignment == SEQ_PAR_Type_NRPN ) {
+		// MOD: NRPN number - GP11: MSB (CC#99), GP12/13: LSB (CC#98)
+		// selection has to be confirmed with GP button (like CC number)
+		u8 current_msb = SEQ_CC_Get(visible_track, SEQ_CC_LAY_CONST_B1 + ui_selected_par_layer);
+		u8 current_lsb = SEQ_CC_Get(visible_track, SEQ_CC_LAY_CONST_C1 + ui_selected_par_layer) & 0x7f;
+		if( ui_selected_item != ITEM_LAYER_PAR ) {
+		  edit_cc_number = current_msb;
+		  edit_nrpn_lsb = current_lsb;
+		  ui_selected_item = ITEM_LAYER_PAR;
+		}
+		edit_nrpn_field = (encoder == SEQ_UI_ENCODER_GP11) ? 0 : 1;
+
+		if( incrementer ) {
+		  SEQ_UI_Msg(SEQ_UI_MSG_USER, 2000, "Please confirm NRPN", "with GP button!");
+		} else {
+		  if( edit_cc_number != current_msb || edit_nrpn_lsb != current_lsb ) {
+		    SEQ_CC_Set(visible_track, SEQ_CC_LAY_CONST_B1 + ui_selected_par_layer, edit_cc_number);
+		    SEQ_CC_Set(visible_track, SEQ_CC_LAY_CONST_C1 + ui_selected_par_layer, edit_nrpn_lsb);
+		    SEQ_UI_Msg(SEQ_UI_MSG_USER, 2000, "NRPN number", "has been changed.");
+		  } else {
+		    // send MIDI event
+		    if( SEQ_LAYER_DirectSendEvent(visible_track, ui_selected_par_layer) >= 0 ) {
+		      SEQ_UI_Msg(SEQ_UI_MSG_USER, 2000, "MIDI event", "has been sent.");
+		    }
+		  }
+		}
 	      } else {
 		return -1; // ignore
 	      }
@@ -704,6 +733,27 @@ static s32 Encoder_Handler(seq_ui_encoder_t encoder, s32 incrementer)
 	  case ITEM_LAYER_PAR:
 	    if( event_mode == SEQ_EVENT_MODE_Drum ) {
 	      return SEQ_UI_CC_Inc(SEQ_CC_LAY_CONST_B1 + ui_selected_par_layer, 0, 127, incrementer);
+	    } else if( SEQ_PAR_AssignmentGet(visible_track, ui_selected_par_layer) == SEQ_PAR_Type_NRPN ) {
+	      // MOD: NRPN MSB: 0..127, 128 = off, 129 = Matrix-1000 catalog; LSB: 0..127
+	      if( edit_nrpn_field ) {
+		if( edit_cc_number == SEQ_NRPN_MSB_MX1K ) {
+		  // Matrix-1000: step through the parameter catalog
+		  u8 new_par = SEQ_NRPN_Mx1kParInc(edit_nrpn_lsb, incrementer);
+		  if( new_par == edit_nrpn_lsb )
+		    return 0;
+		  edit_nrpn_lsb = new_par;
+		  return 1;
+		}
+		return SEQ_UI_Var8_Inc(&edit_nrpn_lsb, 0, 127, incrementer);
+	      }
+
+	      if( SEQ_UI_Var8_Inc(&edit_cc_number, 0, SEQ_NRPN_MSB_MAX, incrementer) > 0 ) {
+		// switched to Matrix-1000: start with VCF Freq if LSB isn't a valid parameter
+		if( edit_cc_number == SEQ_NRPN_MSB_MX1K && !SEQ_NRPN_Mx1kParGet(edit_nrpn_lsb) )
+		  edit_nrpn_lsb = 21;
+		return 1;
+	      }
+	      return 0;
 	    } else {
 	      // CC number selection now has to be confirmed with GP button
 	      return SEQ_UI_Var8_Inc(&edit_cc_number, 0, 128, incrementer);
@@ -1361,7 +1411,9 @@ static s32 LCD_Handler(u8 high_prio)
 	}
 
 	/////////////////////////////////////////////////////////////////////////
-	if( ui_selected_item == ITEM_LAYER_PAR && ui_cursor_flash ) {
+	// MOD: NRPN flashes only the selected field (MSB or LSB)
+	if( ui_selected_item == ITEM_LAYER_PAR && ui_cursor_flash &&
+	    SEQ_PAR_AssignmentGet(visible_track, ui_selected_par_layer) != SEQ_PAR_Type_NRPN ) {
 	  SEQ_LCD_PrintSpaces(15);
 	} else {
 	  u8 assignment = SEQ_PAR_AssignmentGet(visible_track, ui_selected_par_layer);
@@ -1382,6 +1434,54 @@ static s32 LCD_Handler(u8 high_prio)
 					     (current_value != edit_value) ? '!' : ' ',
 					     SEQ_CC_LABELS_Get(port, edit_value, assignment == SEQ_PAR_Type_Ctrl));
 	      }
+	    } break;
+
+            case SEQ_PAR_Type_NRPN: {
+	      // MOD: "M:000 L:021!  " (M = NRPN MSB/CC#99, L = NRPN LSB/CC#98)
+	      u8 current_msb = SEQ_CC_Get(visible_track, SEQ_CC_LAY_CONST_B1 + ui_selected_par_layer);
+	      u8 current_lsb = SEQ_CC_Get(visible_track, SEQ_CC_LAY_CONST_C1 + ui_selected_par_layer) & 0x7f;
+	      u8 editing = ui_selected_item == ITEM_LAYER_PAR;
+	      u8 msb = editing ? edit_cc_number : current_msb;
+	      u8 lsb = editing ? edit_nrpn_lsb : current_lsb;
+	      u8 flash = editing && ui_cursor_flash;
+
+	      // MOD: Matrix-1000 catalog: "MX21 VCF Freq !" (parameter number and name)
+	      if( msb == SEQ_NRPN_MSB_MX1K ) {
+		const seq_nrpn_mx1k_par_t *par = SEQ_NRPN_Mx1kParGet(lsb);
+
+		if( flash && edit_nrpn_field == 0 )
+		  SEQ_LCD_PrintSpaces(2);
+		else
+		  SEQ_LCD_PrintString("MX");
+
+		if( flash && edit_nrpn_field == 1 ) {
+		  SEQ_LCD_PrintSpaces(12);
+		} else if( par ) {
+		  SEQ_LCD_PrintFormattedString("%02d %-9s", par->num, par->name);
+		} else {
+		  SEQ_LCD_PrintFormattedString("%02d ???      ", lsb);
+		}
+
+		SEQ_LCD_PrintChar((msb != current_msb || lsb != current_lsb) ? '!' : ' ');
+		break; // total: 15 characters
+	      }
+
+	      SEQ_LCD_PrintString("M:");
+	      if( flash && edit_nrpn_field == 0 )
+		SEQ_LCD_PrintSpaces(3);
+	      else if( msb >= 0x80 )
+		SEQ_LCD_PrintString("off");
+	      else
+		SEQ_LCD_PrintFormattedString("%03d", msb);
+
+	      SEQ_LCD_PrintString(" L:");
+	      if( flash && edit_nrpn_field == 1 )
+		SEQ_LCD_PrintSpaces(3);
+	      else
+		SEQ_LCD_PrintFormattedString("%03d", lsb);
+
+	      SEQ_LCD_PrintChar((msb != current_msb || lsb != current_lsb) ? '!' : ' ');
+	      SEQ_LCD_PrintSpaces(3); // total: 15 characters
 	    } break;
 
             default:

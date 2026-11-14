@@ -19,6 +19,7 @@
 #include <string.h>
 
 #include "seq_par.h"
+#include "seq_nrpn.h" // MOD
 #include "seq_cc.h"
 #include "seq_core.h"
 
@@ -64,6 +65,7 @@ static const char seq_par_type_names[SEQ_PAR_NUM_TYPES][6] = {
   "Scale", // 17
   "Chrd3", // 18
   "Ctrl ",  // 19
+  "NRPN ",  // 20 (MOD)
 };
 
 static const u8 seq_par_map[SEQ_PAR_NUM_TYPES] = { // allows to change the order for the UI selection
@@ -75,6 +77,7 @@ static const u8 seq_par_map[SEQ_PAR_NUM_TYPES] = { // allows to change the order
   SEQ_PAR_Type_Velocity,
   SEQ_PAR_Type_Length,
   SEQ_PAR_Type_CC,
+  SEQ_PAR_Type_NRPN, // MOD
   SEQ_PAR_Type_PitchBend,
   SEQ_PAR_Type_Aftertouch,
   SEQ_PAR_Type_ProgramChange,
@@ -110,6 +113,7 @@ static const u8 seq_par_default_value[SEQ_PAR_NUM_TYPES] = {
   0,    // Scale: 0
   0x01, // Chord3: 1
   0x00, // Ctrl
+  0x80, // NRPN (MOD) // overruled via seq_core_options.INIT_CC like CC
 };
 
 static const u8 seq_par_max_value[SEQ_PAR_NUM_TYPES] = {
@@ -133,6 +137,7 @@ static const u8 seq_par_max_value[SEQ_PAR_NUM_TYPES] = {
   0x7f, // Scale
   0x7f, // Chord3
   0x80, // Ctrl
+  0x80, // NRPN (MOD)
 };
 
 
@@ -539,6 +544,31 @@ s32 SEQ_PAR_AssignedTypeStr(u8 track, u8 par_layer, u8 instrument, char *str_buf
     } else {
       sprintf(str_buffer, "#%03d ", cc_number);
     }
+  } else if( asg == SEQ_PAR_Type_NRPN ) {
+    // MOD: NRPN shows the 14bit parameter number (MSB*128 + LSB), e.g. "N0021"
+    seq_cc_trk_t *tcc = &seq_cc_trk[track];
+    if( tcc->event_mode == SEQ_EVENT_MODE_Drum ) {
+      strcpy(str_buffer, "n/a  "); // not supported for drum tracks
+    } else {
+      u8 msb = SEQ_CC_Get(track, SEQ_CC_LAY_CONST_B1 + par_layer);
+      u8 lsb = SEQ_CC_Get(track, SEQ_CC_LAY_CONST_C1 + par_layer) & 0x7f;
+      if( msb == SEQ_NRPN_MSB_MX1K ) {
+	// Matrix-1000 catalog: short parameter name, e.g. "VCF  "
+	const seq_nrpn_mx1k_par_t *par = SEQ_NRPN_Mx1kParGet(lsb);
+	if( par )
+	  strcpy(str_buffer, par->short_name);
+	else
+	  strcpy(str_buffer, "MX?? ");
+      } else if( msb >= 0x80 ) {
+	strcpy(str_buffer, "NOff ");
+      } else {
+	u16 nrpn = ((u16)msb << 7) | lsb;
+	if( nrpn < 10000 )
+	  sprintf(str_buffer, "N%04d", nrpn);
+	else
+	  sprintf(str_buffer, "%5d", nrpn);
+      }
+    }
   } else {
     strncpy(str_buffer, SEQ_PAR_TypeStr(asg), 6);
   }
@@ -580,7 +610,7 @@ u8 SEQ_PAR_InitValueGet(seq_par_layer_type_t par_type, u8 par_layer)
     return 0x00; // Note/Chords are 0 by default if not in Layer A
 
   // new: variable init value
-  if( par_type == SEQ_PAR_Type_CC )
+  if( par_type == SEQ_PAR_Type_CC || par_type == SEQ_PAR_Type_NRPN )
     return seq_core_options.INIT_CC;
 
   return seq_par_default_value[par_type];

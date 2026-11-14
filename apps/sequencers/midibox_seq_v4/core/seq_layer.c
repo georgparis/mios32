@@ -21,6 +21,7 @@
 
 #include "seq_bpm.h"
 #include "seq_layer.h"
+#include "seq_nrpn.h" // MOD
 #include "seq_core.h"
 #include "seq_cc.h"
 #include "seq_trg.h"
@@ -821,6 +822,62 @@ s32 SEQ_LAYER_GetEvents(u8 track, u16 step, seq_layer_evnt_t layer_events[16], u
 
 	} break;
 
+        case SEQ_PAR_Type_NRPN: {
+	  // MOD: NRPN layer
+	  // behaves like a CC layer, but the value is sent via Data Entry (CC#6).
+	  // The NRPN number (CC#99 MSB = Const B, CC#98 LSB = Const C) is sent
+	  // in front of each value by SEQ_CORE (see SEQ_CORE_NrpnAddressSchedule)
+	  seq_layer_evnt_t *e = &layer_events[num_events];
+	  mios32_midi_package_t *p = &e->midi_package;
+	  u8 nrpn_msb, nrpn_lsb;
+	  u8 value = SEQ_PAR_Get(track, step, par_layer, instrument);
+
+	  if( !insert_empty_notes ) {
+	    // don't send if NRPN is disabled (MSB off or unknown catalog parameter)
+	    if( !SEQ_NRPN_AddressGet(track, par_layer, &nrpn_msb, &nrpn_lsb) )
+	      break;
+
+	    // Matrix-1000 catalog: keep the value within the parameter range
+	    u8 min, max;
+	    if( value < 0x80 && SEQ_NRPN_ValueRangeGet(track, par_layer, &min, &max) ) {
+	      if( value < min ) value = min;
+	      if( value > max ) value = max;
+	    }
+
+	    // don't send if value hasn't changed (== invalid value)
+	    // but only if LFO not assigned to CC layer
+	    if( !tcc->lfo_enable_flags.CC &&
+		( value >= 0x80 || value == cc_last_value[track][0][par_layer]) ) {
+	      break;
+	    }
+	    cc_last_value[track][0][par_layer] = value;
+	  }
+
+	  if(
+#ifndef MBSEQV4L
+	     (tcc->event_mode != SEQ_EVENT_MODE_CC || gate) &&
+#endif
+	     (insert_empty_notes || !(layer_muted & (1 << par_layer))) ) {
+	    p->type     = CC;
+	    p->cable    = track;
+	    p->event    = CC;
+	    p->chn      = tcc->midi_chn;
+	    p->cc_number = SEQ_LAYER_NRPN_DATA_ENTRY_CC;
+	    p->value    = value;
+	    e->len      = -1;
+	    e->layer_tag = par_layer;
+	    ++num_events;
+
+	    // morph it
+	    if( !insert_empty_notes && tcc->morph_mode )
+	      SEQ_MORPH_EventCC(track, step, e, instrument, par_layer);
+
+	    if( handle_vu_meter )
+	      seq_layer_vu_meter[par_layer] = ((p->value > 8) ? p->value : 8) | 0x80;
+	  }
+
+	} break;
+
         case SEQ_PAR_Type_Ctrl: {
 	  u8 cc_number = tcc->lay_const[1*16 + par_layer];
 	  u8 value = SEQ_PAR_Get(track, step, par_layer, instrument);
@@ -922,6 +979,14 @@ s32 SEQ_LAYER_GetEvents(u8 track, u16 step, seq_layer_evnt_t layer_events[16], u
 	  mios32_midi_package_t *p = &e->midi_package;
 	  u8 value = SEQ_PAR_Get(track, step, par_layer, instrument);
 
+	  // MOD: send aftertouch only on active steps (gate set), in all event modes.
+	  // Steps without gate are skipped completely, so that e.g. a filter mapped
+	  // to aftertouch isn't modified between the notes.
+	  // Checked *before* at_last_value is updated, so that the next active step
+	  // still sends its value even if it equals the value of a skipped step.
+	  if( !insert_empty_notes && !gate )
+	    break;
+
 	  // don't send aftertouch if value hasn't changed
 	  if( !insert_empty_notes ) {
 	    if( value >= 0x80 || value == at_last_value[track] )
@@ -929,8 +994,7 @@ s32 SEQ_LAYER_GetEvents(u8 track, u16 step, seq_layer_evnt_t layer_events[16], u
 	    at_last_value[track] = value;
 	  }
 
-	  if( (tcc->event_mode != SEQ_EVENT_MODE_CC || gate) &&
-	      (insert_empty_notes || !(layer_muted & (1 << par_layer))) ) {
+	  if( (insert_empty_notes || !(layer_muted & (1 << par_layer))) ) {
 	    p->type     = Aftertouch;
 	    p->cable    = track;
 	    p->event    = Aftertouch;
@@ -1285,6 +1349,38 @@ s32 SEQ_LAYER_DirectSendEvent(u8 track, u8 par_layer)
     p.event     = CC;
     p.cc_number = tcc->lay_const[1*16 + par_layer];
     p.value     = value;
+  } break;
+
+  case SEQ_PAR_Type_NRPN: { // MOD
+    u8 nrpn_msb, nrpn_lsb;
+    u8 value = (cc_last_value[track][0][par_layer] < 0x80) ? cc_last_value[track][0][par_layer] : 0x40;
+
+    if( !SEQ_NRPN_AddressGet(track, par_layer, &nrpn_msb, &nrpn_lsb) )
+      return -1; // NRPN disabled
+
+    // Matrix-1000 catalog: keep the value within the parameter range
+    u8 min, max;
+    if( SEQ_NRPN_ValueRangeGet(track, par_layer, &min, &max) ) {
+      if( value < min ) value = min;
+      if( value > max ) value = max;
+    }
+
+    p.type      = CC;
+    p.event     = CC;
+
+    MUTEX_MIDIOUT_TAKE;
+    p.cc_number = 99; // NRPN MSB
+    p.value     = nrpn_msb;
+    MIOS32_MIDI_SendPackage(tcc->midi_port, p);
+    p.cc_number = 98; // NRPN LSB
+    p.value     = nrpn_lsb;
+    MIOS32_MIDI_SendPackage(tcc->midi_port, p);
+    p.cc_number = SEQ_LAYER_NRPN_DATA_ENTRY_CC;
+    p.value     = value;
+    MIOS32_MIDI_SendPackage(tcc->midi_port, p);
+    MUTEX_MIDIOUT_GIVE;
+
+    return 0; // no error
   } break;
 
   case SEQ_PAR_Type_PitchBend: {

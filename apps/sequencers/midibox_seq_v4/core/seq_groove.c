@@ -238,6 +238,9 @@ s32 SEQ_GROOVE_Init(u32 mode)
 /////////////////////////////////////////////////////////////////////////////
 char *SEQ_GROOVE_NameGet(u8 groove)
 {
+  if( groove == SEQ_GROOVE_MPC_SWING )
+    return "MPC3000Swing";
+
   if( groove >= (SEQ_GROOVE_NUM_PRESETS+SEQ_GROOVE_NUM_TEMPLATES)  )
     return "Invld Groove";
 
@@ -249,12 +252,53 @@ char *SEQ_GROOVE_NameGet(u8 groove)
 
 
 /////////////////////////////////////////////////////////////////////////////
+// MOD: MPC3000 swing
+// Returns the number of ticks (384 ppqn) at which the step should be delayed.
+//
+// Taken from the MPC2000XL OS 1.20 + "MPC3000 swing" mod:
+//   delay_mpc = (max_swing * (swing% - 50) + 12) / 25    [96 ppqn ticks]
+// with max_swing = half the grid in 96 ppqn ticks (12 for 16th, 24 for 8th).
+// The original 2000XL OS truncates (no "+ 12"), the 3000 rounds.
+// Only every second grid position is delayed, triplet grids have no swing.
+//
+// MBSEQ: grid = step_length (384 ppqn) -> max_swing = step_length / 8,
+// so:  delay_mpc = (step_length * k + 96) / 200   with k = intensity 0..25
+// The result is kept on the coarse 96 ppqn raster (1 MPC tick = 4 MBSEQ
+// ticks) on purpose to reproduce the MPC timing exactly.
+/////////////////////////////////////////////////////////////////////////////
+s32 SEQ_GROOVE_MpcSwingDelayGet(u8 track, u8 step)
+{
+  seq_cc_trk_t *tcc = &seq_cc_trk[track];
+
+  if( !(step & 1) )
+    return 0; // only every second step is delayed
+
+  if( tcc->clkdiv.TRIPLETS )
+    return 0; // MPC: no swing for triplet grids
+
+  u32 k = tcc->groove_value;
+  if( k > SEQ_GROOVE_MPC_SWING_MAX )
+    k = SEQ_GROOVE_MPC_SWING_MAX;
+
+  u32 step_length = seq_core_trk[track].step_length;
+  if( !step_length ) // not initialized yet: take value from clock divider
+    step_length = (tcc->clkdiv.value+1) * 6;
+
+  u32 delay_mpc = (step_length * k + 96) / 200;
+  return 4 * delay_mpc;
+}
+
+
+/////////////////////////////////////////////////////////////////////////////
 // returns 0..95 for the number of ticks at which the step should be delayed
 /////////////////////////////////////////////////////////////////////////////
 s32 SEQ_GROOVE_DelayGet(u8 track, u8 step)
 {
   seq_cc_trk_t *tcc = &seq_cc_trk[track];
   u8 groove = tcc->groove_style.style;
+
+  if( groove == SEQ_GROOVE_MPC_SWING )
+    return SEQ_GROOVE_MpcSwingDelayGet(track, step);
 
   // check if within allowed range
   if( !groove || groove >= (SEQ_GROOVE_NUM_PRESETS+SEQ_GROOVE_NUM_TEMPLATES) )
@@ -346,8 +390,8 @@ s32 SEQ_GROOVE_Event(u8 track, u8 step, seq_layer_evnt_t *e)
 /////////////////////////////////////////////////////////////////////////////
 s32 SEQ_GROOVE_Clear(u8 groove)
 {
-  if( groove < SEQ_GROOVE_NUM_PRESETS )
-    return -1; // preset not editable
+  if( groove < SEQ_GROOVE_NUM_PRESETS || groove >= (SEQ_GROOVE_NUM_PRESETS+SEQ_GROOVE_NUM_TEMPLATES) )
+    return -1; // preset (or MPC swing) not editable
 
   s32 groove_template = groove - SEQ_GROOVE_NUM_PRESETS; // negative if not a custom template
 

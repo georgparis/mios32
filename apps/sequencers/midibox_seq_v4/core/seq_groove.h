@@ -23,6 +23,14 @@
 #define SEQ_GROOVE_NUM_PRESETS    7
 #define SEQ_GROOVE_NUM_TEMPLATES 16
 
+// MOD: MPC3000 swing
+// Appended after the custom templates, so that the indices of existing
+// presets/templates (stored in pattern files as "GrooveStyle") don't change.
+// Intensity 0..25 corresponds to MPC swing 50%..75%
+#define SEQ_GROOVE_MPC_SWING       (SEQ_GROOVE_NUM_PRESETS+SEQ_GROOVE_NUM_TEMPLATES)
+#define SEQ_GROOVE_NUM_TOTAL       (SEQ_GROOVE_MPC_SWING+1)
+#define SEQ_GROOVE_MPC_SWING_MAX   25
+
 
 /////////////////////////////////////////////////////////////////////////////
 // Global Types
@@ -54,6 +62,7 @@ extern s32 SEQ_GROOVE_Init(u32 mode);
 extern char *SEQ_GROOVE_NameGet(u8 groove);
 
 extern s32 SEQ_GROOVE_DelayGet(u8 track, u8 step);
+extern s32 SEQ_GROOVE_MpcSwingDelayGet(u8 track, u8 step);
 extern s32 SEQ_GROOVE_Event(u8 track, u8 step, seq_layer_evnt_t *e);
 
 extern s32 SEQ_GROOVE_Clear(u8 groove);

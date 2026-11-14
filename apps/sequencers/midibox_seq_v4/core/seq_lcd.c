@@ -43,6 +43,7 @@
 #include "seq_midi_sysex.h"
 #include "seq_cc.h"
 #include "seq_par.h"
+#include "seq_nrpn.h" // MOD
 #include "seq_layer.h"
 #include "seq_scale.h"
 
@@ -768,12 +769,16 @@ s32 SEQ_LCD_PrintLayerValue(u8 track, u8 par_layer, u8 par_value)
     break;
 
   case SEQ_PAR_Type_CC:
+  case SEQ_PAR_Type_NRPN: // MOD
   case SEQ_PAR_Type_ProgramChange:
   case SEQ_PAR_Type_PitchBend:
   case SEQ_PAR_Type_Aftertouch:
   case SEQ_PAR_Type_Ctrl: {
     if( par_value >= 0x80 ) {
       SEQ_LCD_PrintFormattedString("----");
+    } else if( layer_type == SEQ_PAR_Type_NRPN ) {
+      // MOD: NRPN catalog (e.g. Matrix-1000) shows the value of the device
+      SEQ_LCD_PrintFormattedString("%3d ", SEQ_NRPN_DisplayValueGet(track, par_layer, par_value));
     } else {
       SEQ_LCD_PrintFormattedString("%3d ", par_value);
     }
@@ -935,6 +940,7 @@ s32 SEQ_LCD_PrintLayerEvent(u8 track, u8 step, u8 par_layer, u8 instrument, u8 s
     break;
 
   case SEQ_PAR_Type_CC:
+  case SEQ_PAR_Type_NRPN: // MOD
   case SEQ_PAR_Type_ProgramChange:
   case SEQ_PAR_Type_PitchBend:
   case SEQ_PAR_Type_Aftertouch:
@@ -947,7 +953,10 @@ s32 SEQ_LCD_PrintLayerEvent(u8 track, u8 step, u8 par_layer, u8 instrument, u8 s
       if( value >= 0x80 ) {
 	SEQ_LCD_PrintFormattedString("----");
       } else {
-	SEQ_LCD_PrintFormattedString("%3d", value);
+	if( layer_type == SEQ_PAR_Type_NRPN ) // MOD: show value of NRPN catalog device
+	  SEQ_LCD_PrintFormattedString("%3d", SEQ_NRPN_DisplayValueGet(track, par_layer, value));
+	else
+	  SEQ_LCD_PrintFormattedString("%3d", value);
 	SEQ_LCD_PrintVBar(value >> 4);
       }
     }

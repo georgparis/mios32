@@ -28,6 +28,7 @@
 #include "seq_cc_labels.h"
 #include "seq_layer.h"
 #include "seq_par.h"
+#include "seq_nrpn.h" // MOD
 #include "seq_trg.h"
 #include "seq_chord.h"
 #include "seq_scale.h"
@@ -1497,6 +1498,21 @@ static s32 ChangeSingleEncValue(u8 track, u16 par_step, u16 trg_step, s32 increm
     if( new_value >= max ) {
       new_value = max;
     }
+
+    // MOD: NRPN catalog (e.g. Matrix-1000): limit to the parameter range,
+    // turning beyond the maximum selects "----" (no value sent) like for CCs
+    u8 nrpn_min, nrpn_max;
+    if( par_layer_type == SEQ_PAR_Type_NRPN &&
+	SEQ_NRPN_ValueRangeGet(track, ui_selected_par_layer, &nrpn_min, &nrpn_max) ) {
+      if( new_value > nrpn_max ) {
+	if( old_value >= 0x80 ) // currently "----": turning left returns to the maximum
+	  new_value = (incrementer < 0) ? nrpn_max : 0x80;
+	else // at maximum: turning right selects "----"
+	  new_value = (incrementer > 0 && old_value == nrpn_max) ? 0x80 : nrpn_max;
+      }
+      else if( new_value < nrpn_min )
+	new_value = nrpn_min;
+    }
   }
 	    
   // extra for more comfortable editing of multi-note tracks:
@@ -1523,7 +1539,7 @@ static s32 ChangeSingleEncValue(u8 track, u16 par_step, u16 trg_step, s32 increm
     u8 event_mode = SEQ_CC_Get(track, SEQ_CC_MIDI_EVENT_MODE);
 
     // we do this always regardless if value has been changed or not (e.g. increment if value already 127)
-    if( event_mode == SEQ_EVENT_MODE_CC && layer_type == SEQ_PAR_Type_CC ) {
+    if( event_mode == SEQ_EVENT_MODE_CC && (layer_type == SEQ_PAR_Type_CC || layer_type == SEQ_PAR_Type_NRPN) ) { // MOD: NRPN
       // in this mode gates are used to disable CC
       // if a CC value has been changed, set gate
       if( !seq_ui_options.PRINT_AND_MODIFY_WITHOUT_GATES ) {

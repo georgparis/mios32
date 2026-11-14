@@ -692,10 +692,10 @@ s32 SEQ_TERMINAL_ParseLine(char *input, void *_output_function)
     } else if( strcmp(parameter, "stop") == 0 ) {
       SEQ_UI_Button_Stop(0);
       out("Sequencer stopped...");
-    } else if( strcmp(parameter, "store") == 0 || (strcmp(parameter, "save") == 0 && strlen(brkt) == 0) ) {
+    } else if( strcmp(parameter, "store") == 0 || (strcmp(parameter, "save") == 0 && (!brkt || strlen(brkt) == 0)) ) { // MOD: brkt can be NULL (host libc)
       if( seq_ui_backup_req || seq_ui_format_req ) {
 	out("Ongoing session creation - please wait!");
-      } else if( strlen(brkt) ) {
+      } else if( brkt && strlen(brkt) ) {
 	out("ERROR: use 'save' if you want to store the session under a new name!");
       } else {
 	seq_ui_saveall_req = 1;
@@ -869,7 +869,7 @@ s32 SEQ_TERMINAL_ParseLine(char *input, void *_output_function)
     } else if( strcmp(parameter, "restore") == 0 ) {
       if( seq_ui_backup_req || seq_ui_format_req ) {
 	out("Ongoing session creation - please wait!");
-      } else if( strlen(brkt) ) {
+      } else if( brkt && strlen(brkt) ) {
 	out("ERROR: use 'open' if you want to load a specific session!");
       } else {
 	MUTEX_SDCARD_TAKE;
